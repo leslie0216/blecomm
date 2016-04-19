@@ -559,7 +559,7 @@ public class BLEHandler {
         m_gattServerCallback = new BluetoothGattServerCallback() {
             @Override
             public void onConnectionStateChange(BluetoothDevice device, int status, int newState) {
-                Log.d(TAG, "Our gatt server connection state changed, new state " + newState);
+                Log.d(TAG, "gatt server connection state changed, new state " + newState);
                 super.onConnectionStateChange(device, status, newState);
                 if (newState == BluetoothProfile.STATE_CONNECTED) {
                     m_centralDevice = device;
@@ -575,20 +575,20 @@ public class BLEHandler {
 
             @Override
             public void onServiceAdded(int status, BluetoothGattService service) {
-                Log.d(TAG, "Our gatt server service was added.");
+                Log.d(TAG, "service id = " + service.getUuid() + ", added with status = " + status);
                 super.onServiceAdded(status, service);
             }
 
             @Override
             public void onCharacteristicReadRequest(BluetoothDevice device, int requestId, int offset, BluetoothGattCharacteristic characteristic) {
-                Log.d(TAG, "Our gatt characteristic was read.");
+                Log.d(TAG, "received a read request from " + device.getName() + " to characteristic " + characteristic.getUuid());
                 super.onCharacteristicReadRequest(device, requestId, offset, characteristic);
             }
 
             @Override
             public void onCharacteristicWriteRequest(BluetoothDevice device, int requestId, BluetoothGattCharacteristic characteristic, boolean preparedWrite, boolean responseNeeded, int offset, byte[] value) {
                 long receiveTime = System.nanoTime();
-                Log.d(TAG, "received a write request from " + device.getName());
+                Log.d(TAG, "received a write request from " + device.getName() + " to characteristic " + characteristic.getUuid());
                 //super.onCharacteristicWriteRequest(device, requestId, characteristic, preparedWrite, responseNeeded, offset, value);
                 m_bluetoothGattServer.sendResponse(device, requestId,  BluetoothGatt.GATT_SUCCESS, offset, value);
 
@@ -615,7 +615,7 @@ public class BLEHandler {
 
             @Override
             public void onExecuteWrite(BluetoothDevice device, int requestId, boolean execute) {
-                Log.d(TAG, "Our gatt server on execute write.");
+                Log.d(TAG, "gatt server on execute write device = " + device + " requestId = " + " execute = " + execute);
                 super.onExecuteWrite(device, requestId, execute);
             }
 
@@ -683,12 +683,14 @@ public class BLEHandler {
     }
 
     public boolean sendDataToCentral(byte[] msg) {
-        Log.d(TAG, "sendDataToCentral: byteMsg size : " + msg.length);
+        boolean rt;
         m_writeCharacteristic.setValue(msg);
-        return !isCentral() &&
+        rt = !isCentral() &&
                 m_centralDevice != null &&
                 m_bluetoothGattServer != null &&
                 m_bluetoothGattServer.notifyCharacteristicChanged(m_centralDevice, m_writeCharacteristic, false);
+        Log.d(TAG, "sendDataToCentral: byteMsg size : " + msg.length + ", result : " + rt);
+        return rt;
     }
     //endregion
 }
