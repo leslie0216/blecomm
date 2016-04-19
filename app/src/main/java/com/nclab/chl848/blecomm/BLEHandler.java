@@ -180,7 +180,7 @@ public class BLEHandler {
                     PeripheralInfo info = values.nextElement();
 
                     if (info.m_bluetoothGatt != null) {
-                        if (isCentral()) {
+                        if (isCentral() && info.m_readCharacteristic != null) {
                             // unsubscribe
                             info.m_bluetoothGatt.setCharacteristicNotification(info.m_readCharacteristic, false);
 
@@ -378,6 +378,7 @@ public class BLEHandler {
 
                 } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                     Log.i(TAG, "Disconnected from GATT server : " + gatt.getDevice().getName());
+                    m_peripheralDevices.remove(gatt.getDevice().getAddress());
                     broadcastStatus(BLE_GATT_DISCONNECTED_ACTION);
                     gatt.disconnect();
                     gatt.close();
@@ -470,6 +471,7 @@ public class BLEHandler {
             @Override
             public void onReliableWriteCompleted(BluetoothGatt gatt, int status) {
                 super.onReliableWriteCompleted(gatt, status);
+                Log.d(TAG, "onReliableWriteCompleted: status : " + status);
             }
 
             @Override
@@ -490,12 +492,28 @@ public class BLEHandler {
     }
 
     public boolean sendDataToAllPeripherals(byte[] msg) {
-        Log.d(TAG, "sendDataToAllPeripheral: byteMsg size : " + msg.length);
         boolean rt = false;
         Enumeration<PeripheralInfo> values = m_peripheralDevices.elements();
         while (values.hasMoreElements()) {
             PeripheralInfo info = values.nextElement();
 
+            if (info.m_writeCharacteristic != null) {
+                //Log.d(TAG, "sendDataToAllPeripherals: initReliableWrite : " + info.m_bluetoothGatt.beginReliableWrite());
+                info.m_writeCharacteristic.setValue(msg);
+                rt =  info.m_bluetoothGatt.writeCharacteristic(info.m_writeCharacteristic);
+            } else {
+                rt =  false;
+            }
+        }
+        Log.d(TAG, "sendDataToAllPeripheral: byteMsg size : " + msg.length + ", result : " + rt);
+
+        return rt;
+    }
+
+    public boolean sendDataToPeripheral(String address, byte[] msg) {
+        PeripheralInfo info = m_peripheralDevices.get(address);
+        boolean rt = false;
+        if (info != null) {
             if (info.m_writeCharacteristic != null) {
                 info.m_writeCharacteristic.setValue(msg);
                 rt =  info.m_bluetoothGatt.writeCharacteristic(info.m_writeCharacteristic);
@@ -503,23 +521,9 @@ public class BLEHandler {
                 rt =  false;
             }
         }
+        Log.d(TAG, "sendDataToPeripheral: byteMsg size : " + msg.length + ", to : " + info.m_name +  ", result : " + rt);
 
         return rt;
-    }
-
-    public boolean sendDataToPeripheral(String address, byte[] msg) {
-        PeripheralInfo info = m_peripheralDevices.get(address);
-        if (info != null) {
-            Log.d(TAG, "sendDataToPeripheral: byteMsg size : " + msg.length + "to : " + info.m_name);
-            if (info.m_writeCharacteristic != null) {
-                info.m_writeCharacteristic.setValue(msg);
-                return info.m_bluetoothGatt.writeCharacteristic(info.m_writeCharacteristic);
-            } else {
-                return false;
-            }
-        }
-
-        return false;
     }
     //endregion
 
@@ -646,8 +650,12 @@ public class BLEHandler {
     private void initGattServer() {
         m_bluetoothGattServer = m_bluetoothManager.openGattServer(m_currentActivity, m_gattServerCallback);
         BluetoothGattService service = new BluetoothGattService(UUID.fromString(TRANSFER_SERVICE_UUID), BluetoothGattService.SERVICE_TYPE_PRIMARY);
-        m_readCharacteristic = new BluetoothGattCharacteristic(UUID.fromString(TRANSFER_CHARACTERISTIC_MSG_FROM_CENTRAL_UUID), BluetoothGattCharacteristic.PROPERTY_WRITE, BluetoothGattCharacteristic.PERMISSION_WRITE );
-        m_writeCharacteristic = new BluetoothGattCharacteristic(UUID.fromString(TRANSFER_CHARACTERISTIC_MSG_FROM_PERIPHERAL_UUID), BluetoothGattCharacteristic.PROPERTY_NOTIFY | BluetoothGattCharacteristic.PROPERTY_READ, BluetoothGattCharacteristic.PERMISSION_READ );
+
+        m_readCharacteristic = new BluetoothGattCharacteristic(UUID.fromString(TRANSFER_CHARACTERISTIC_MSG_FROM_CENTRAL_UUID),
+                BluetoothGattCharacteristic.PROPERTY_WRITE, BluetoothGattCharacteristic.PERMISSION_WRITE );
+
+        m_writeCharacteristic = new BluetoothGattCharacteristic(UUID.fromString(TRANSFER_CHARACTERISTIC_MSG_FROM_PERIPHERAL_UUID),
+                BluetoothGattCharacteristic.PROPERTY_NOTIFY | BluetoothGattCharacteristic.PROPERTY_READ, BluetoothGattCharacteristic.PERMISSION_READ );
         BluetoothGattDescriptor gD = new BluetoothGattDescriptor(UUID.fromString(CLIENT_CHARACTERISTIC_CONFIG), BluetoothGattDescriptor.PERMISSION_WRITE | BluetoothGattDescriptor.PERMISSION_READ);
         m_writeCharacteristic.addDescriptor(gD);
 
