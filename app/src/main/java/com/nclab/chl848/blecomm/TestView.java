@@ -164,7 +164,7 @@ public class TestView extends View {
 
                     // calculate time interval in millisecond - 1 millisecond = 1000000 nanosecond
                     double timeInterval = ((double)receiveTime) / 1000000.0 - ((double)info.m_startTime)/1000000.0 - message.getResponseTime();
-                    Log.d(BLEHandler.TAG, "handleReceivedDataAction token : " + token + "timeInterval : " + timeInterval);
+                    Log.d(BLEHandler.TAG, "handleReceivedDataAction token : " + token + ", timeInterval : " + timeInterval);
                     if (timeInterval > 300) {
                         Log.d(BLEHandler.TAG, "!!!High latency!!!");
                     } else if(timeInterval < 0) {
@@ -256,7 +256,9 @@ public class TestView extends View {
 
     public void stopPing(boolean isExit) {
         m_isPing = false;
-        m_pingHandler.removeCallbacks(timerRunnable);
+        if (m_pingHandler != null) {
+            m_pingHandler.removeCallbacks(timerRunnable);
+        }
 
         if (!isExit) {
             new Handler().postDelayed(new Runnable() {
