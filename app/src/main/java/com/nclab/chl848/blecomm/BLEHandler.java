@@ -30,10 +30,10 @@ import android.os.ParcelUuid;
 import android.util.Log;
 
 import java.lang.reflect.Method;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.Hashtable;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.UUID;
 
@@ -42,11 +42,20 @@ import java.util.UUID;
  */
 public class BLEHandler {
 
+    public class CentralSendMessageInfo {
+        public BluetoothGatt m_bluetoothGatt;
+        public BluetoothGattCharacteristic m_characteristic;
+        public byte[] m_value;
+        public int m_sendIndex;
+        public int m_sendCount;
+    }
+
     private class PeripheralInfo {
         public BluetoothGatt m_bluetoothGatt;
         public BluetoothGattCharacteristic m_writeCharacteristic;
         public BluetoothGattCharacteristic m_readCharacteristic;
         public String m_name;
+        public int m_mtu;
     }
 
     //region CONSTANTS
@@ -68,6 +77,10 @@ public class BLEHandler {
     public static final String TRANSFER_CHARACTERISTIC_MSG_FROM_PERIPHERAL_UUID = "481AD972-35A9-44F8-9C9A-9DF1644E1E1E";
     public static final String TRANSFER_CHARACTERISTIC_MSG_FROM_CENTRAL_UUID = "A147F9FE-0914-4706-9A07-20AAC9D7AB92";
     public static final String CLIENT_CHARACTERISTIC_CONFIG = "00002902-0000-1000-8000-00805f9b34fb";
+
+    private static final int DEFAULT_MTU = 23;
+    private static final int MAX_MTU = 512;
+
     //endregion
 
     //region COMMON VARS
@@ -77,6 +90,7 @@ public class BLEHandler {
     private boolean isCentral;
     private boolean m_isScanningOrAdvertising;
     private boolean m_isInit = false;
+    //private SenderThread m_senderThread;
     //endregion
 
     //region CENTRAL VARS
@@ -87,6 +101,7 @@ public class BLEHandler {
     private ScanCallback m_scanCallback;
     private BluetoothGattCallback m_gattCallback;
     private Hashtable<String, PeripheralInfo> m_peripheralDevices = null;
+    //public List<CentralSendMessageInfo> CentralMessageSendQueue = new LinkedList<>();
     //endregion
 
     //region PERIPHERAL VARS
@@ -151,6 +166,8 @@ public class BLEHandler {
         if (m_bluetoothAdapter != null && m_bluetoothAdapter.isEnabled()) {
             if (isCentral()) {
                 initCentral();
+                //m_senderThread = new SenderThread();
+                //m_senderThread.start();
             } else {
                 if (!m_bluetoothAdapter.isMultipleAdvertisementSupported()) {
                     Log.d(TAG, "setup: isMultipleAdvertisementSupported : false");
@@ -161,6 +178,7 @@ public class BLEHandler {
 
                 initPeripheral();
             }
+
         } else {
             Log.d(TAG, "setupNetwork: bluetooth is not enabled");
             // broadcast message
@@ -196,6 +214,12 @@ public class BLEHandler {
                 m_peripheralDevices.clear();
                 m_peripheralDevices = null;
             }
+
+            /*
+            if (m_senderThread != null){
+                m_senderThread.interrupt();
+                m_senderThread = null; // ???
+            }*/
         } else {
             setIsAdvertise(false);
             if (m_bluetoothGattServer != null) {
@@ -281,11 +305,10 @@ public class BLEHandler {
         m_scanCallback = new ScanCallback() {
             @Override
             public void onScanResult(int callbackType, ScanResult result) {
-                Log.i("callbackType", String.valueOf(callbackType));
-                Log.i("result", result.toString());
+                //Log.i("callbackType", String.valueOf(callbackType));
+                //Log.i("result", result.toString());
 
                 BluetoothDevice device = result.getDevice();
-                Log.d(TAG, "onScanResult: device found : " + device.getName() + " with rssi : " + result.getRssi());
 
                 if (m_peripheralDevices.containsKey(device.getAddress())) {
                     return;
@@ -309,12 +332,13 @@ public class BLEHandler {
                     }
 
                     if (isFound) {
-                        Log.d(TAG, "onLeScan: target service found");
+                        Log.d(TAG, "onScanResult: new device found : " + device.getName() + " with rssi : " + result.getRssi());
                         PeripheralInfo info = new PeripheralInfo();
                         info.m_bluetoothGatt = null;
                         info.m_name = device.getName();
                         info.m_readCharacteristic = null;
                         info.m_writeCharacteristic = null;
+                        info.m_mtu = DEFAULT_MTU;
                         m_peripheralDevices.put(device.getAddress(), info);
                         broadcastStatus(BLE_CONNECTION_UPDATE_ACTION, "device found : " + device.getName() + " with rssi : " + result.getRssi());
 
@@ -451,11 +475,20 @@ public class BLEHandler {
             public void onCharacteristicWrite(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, int status) {
                 super.onCharacteristicWrite(gatt, characteristic, status);
                 Log.d(TAG, "onCharacteristicWrite: " + characteristic.getUuid().toString() + " status=" + status);
+                try {
+                    Message.PingMessage msg = Message.PingMessage.parseFrom(characteristic.getValue());
+                    Log.d(TAG, "onCharacteristicWrite: value = " + msg.getToken());
+
+                    //gatt.executeReliableWrite();
+
+                } catch (Exception ex) {
+                    ex.printStackTrace();
+                }
             }
 
             @Override
             public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic) {
-                //Log.d(TAG, "onCharacteristicChanged: " + characteristic.getUuid().toString() + " valueBytes : " + characteristic.getValue() + " , size : " + characteristic.getValue().length);
+                Log.d(TAG, "onCharacteristicChanged: " + characteristic.getUuid().toString() + " , size : " + characteristic.getValue().length);
 
                 if (characteristic.getUuid().toString().equalsIgnoreCase(TRANSFER_CHARACTERISTIC_MSG_FROM_PERIPHERAL_UUID)) {
                     long receiveTime = System.nanoTime();
@@ -485,7 +518,22 @@ public class BLEHandler {
                     gatt.close();
                     broadcastStatus(BLE_GATT_DISCONNECTED_ACTION);
                 } else {
+                    gatt.requestMtu(MAX_MTU); // request max MTU once all stuff have been done
                     broadcastStatus(BLE_GATT_CONNECTED_ACTION);
+                }
+            }
+
+            @Override
+            public void onMtuChanged(BluetoothGatt gatt, int mtu, int status) {
+                super.onMtuChanged(gatt, mtu, status);
+                //status=GATT_SUCCESS(0) if the MTU has been changed successfully
+                Log.d(TAG, "onMtuChanged: peripheral name = " + gatt.getDevice().getName() + ", MTU = " + mtu + ", status = " + status);
+                if (status == BluetoothGatt.GATT_SUCCESS) {
+                    PeripheralInfo info = m_peripheralDevices.get(gatt.getDevice().getAddress());
+                    if (info != null) {
+                        info.m_mtu = mtu;
+                        m_peripheralDevices.put(gatt.getDevice().getAddress(), info);
+                    }
                 }
             }
         };
@@ -520,11 +568,21 @@ public class BLEHandler {
             } else {
                 rt =  false;
             }
+            Log.d(TAG, "sendDataToPeripheral: byteMsg size : " + msg.length + ", to : " + info.m_name +  ", result : " + rt);
         }
-        Log.d(TAG, "sendDataToPeripheral: byteMsg size : " + msg.length + ", to : " + info.m_name +  ", result : " + rt);
 
         return rt;
     }
+
+    public int getPeripheralMTU(String address) {
+        PeripheralInfo info = m_peripheralDevices.get(address);
+        if (info != null) {
+            return info.m_mtu;
+        } else {
+            return -1;
+        }
+    }
+
     //endregion
 
     //region PERIPHERAL
@@ -623,6 +681,12 @@ public class BLEHandler {
             public void onNotificationSent(BluetoothDevice device, int status) {
                 super.onNotificationSent(device, status);
                 Log.d(TAG, "onNotificationSent to " + device.getName() + " status : " + status);
+            }
+
+            @Override
+            public void onMtuChanged(BluetoothDevice device, int mtu) {
+                super.onMtuChanged(device, mtu);
+                Log.d(TAG, "onMtuChanged: device : " + device.getName() + ", mtu : " + mtu);
             }
         };
     }
