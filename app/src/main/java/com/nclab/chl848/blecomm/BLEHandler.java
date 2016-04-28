@@ -101,7 +101,7 @@ public class BLEHandler {
     private ScanCallback m_scanCallback;
     private BluetoothGattCallback m_gattCallback;
     private Hashtable<String, PeripheralInfo> m_peripheralDevices = null;
-    //public List<CentralSendMessageInfo> CentralMessageSendQueue = new LinkedList<>();
+    public List<CentralSendMessageInfo> CentralMessageSendQueue = new LinkedList<>();
     //endregion
 
     //region PERIPHERAL VARS
@@ -214,6 +214,7 @@ public class BLEHandler {
                 m_peripheralDevices.clear();
                 m_peripheralDevices = null;
             }
+            CentralMessageSendQueue.clear();
 
             /*
             if (m_senderThread != null){
@@ -476,10 +477,20 @@ public class BLEHandler {
                 super.onCharacteristicWrite(gatt, characteristic, status);
                 Log.d(TAG, "onCharacteristicWrite: " + characteristic.getUuid().toString() + " status=" + status);
                 try {
-                    Message.PingMessage msg = Message.PingMessage.parseFrom(characteristic.getValue());
-                    Log.d(TAG, "onCharacteristicWrite: value = " + msg.getToken());
+                    //Message.PingMessage msg = Message.PingMessage.parseFrom(characteristic.getValue());
+                    //Log.d(TAG, "onCharacteristicWrite: value = " + msg.getToken());
 
                     //gatt.executeReliableWrite();
+
+                    if (status == BluetoothGatt.GATT_SUCCESS && CentralMessageSendQueue.size() != 0) {
+                        CentralMessageSendQueue.remove(0);
+                    }
+
+                    if (CentralMessageSendQueue.size() != 0) {
+                        CentralSendMessageInfo msgInfo = CentralMessageSendQueue.get(0);
+                        msgInfo.m_characteristic.setValue(msgInfo.m_value);
+                        msgInfo.m_bluetoothGatt.writeCharacteristic(msgInfo.m_characteristic);
+                    }
 
                 } catch (Exception ex) {
                     ex.printStackTrace();
@@ -519,7 +530,6 @@ public class BLEHandler {
                     broadcastStatus(BLE_GATT_DISCONNECTED_ACTION);
                 } else {
                     gatt.requestMtu(MAX_MTU); // request max MTU once all stuff have been done
-                    broadcastStatus(BLE_GATT_CONNECTED_ACTION);
                 }
             }
 
@@ -534,6 +544,7 @@ public class BLEHandler {
                         info.m_mtu = mtu;
                         m_peripheralDevices.put(gatt.getDevice().getAddress(), info);
                     }
+                    broadcastStatus(BLE_GATT_CONNECTED_ACTION);
                 }
             }
         };
@@ -547,8 +558,18 @@ public class BLEHandler {
 
             if (info.m_writeCharacteristic != null) {
                 //Log.d(TAG, "sendDataToAllPeripherals: initReliableWrite : " + info.m_bluetoothGatt.beginReliableWrite());
-                info.m_writeCharacteristic.setValue(msg);
-                rt =  info.m_bluetoothGatt.writeCharacteristic(info.m_writeCharacteristic);
+                CentralSendMessageInfo msgInfo = new CentralSendMessageInfo();
+                msgInfo.m_bluetoothGatt = info.m_bluetoothGatt;
+                msgInfo.m_characteristic = info.m_writeCharacteristic;
+                msgInfo.m_value = msg;
+                msgInfo.m_sendCount = 1;
+                msgInfo.m_sendIndex = 1;
+                CentralMessageSendQueue.add(msgInfo);
+
+                if (CentralMessageSendQueue.size() == 1) {
+                    info.m_writeCharacteristic.setValue(msg);
+                    rt = info.m_bluetoothGatt.writeCharacteristic(info.m_writeCharacteristic);
+                }
             } else {
                 rt =  false;
             }
@@ -563,8 +584,18 @@ public class BLEHandler {
         boolean rt = false;
         if (info != null) {
             if (info.m_writeCharacteristic != null) {
-                info.m_writeCharacteristic.setValue(msg);
-                rt =  info.m_bluetoothGatt.writeCharacteristic(info.m_writeCharacteristic);
+                CentralSendMessageInfo msgInfo = new CentralSendMessageInfo();
+                msgInfo.m_bluetoothGatt = info.m_bluetoothGatt;
+                msgInfo.m_characteristic = info.m_writeCharacteristic;
+                msgInfo.m_value = msg;
+                msgInfo.m_sendCount = 1;
+                msgInfo.m_sendIndex = 1;
+                CentralMessageSendQueue.add(msgInfo);
+
+                if (CentralMessageSendQueue.size() == 1) {
+                    info.m_writeCharacteristic.setValue(msg);
+                    rt = info.m_bluetoothGatt.writeCharacteristic(info.m_writeCharacteristic);
+                }
             } else {
                 rt =  false;
             }
