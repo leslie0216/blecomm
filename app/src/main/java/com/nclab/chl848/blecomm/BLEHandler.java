@@ -559,26 +559,28 @@ public class BLEHandler {
 
     public boolean sendDataToAllPeripherals(byte[] msg) {
         boolean rt = false;
-        Enumeration<PeripheralInfo> values = m_peripheralDevices.elements();
-        while (values.hasMoreElements()) {
-            PeripheralInfo info = values.nextElement();
+        if (m_peripheralDevices != null) {
+            Enumeration<PeripheralInfo> values = m_peripheralDevices.elements();
+            while (values.hasMoreElements()) {
+                PeripheralInfo info = values.nextElement();
 
-            if (info.m_writeCharacteristic != null) {
-                //Log.d(TAG, "sendDataToAllPeripherals: initReliableWrite : " + info.m_bluetoothGatt.beginReliableWrite());
-                CentralSendMessageInfo msgInfo = new CentralSendMessageInfo();
-                msgInfo.m_bluetoothGatt = info.m_bluetoothGatt;
-                msgInfo.m_characteristic = info.m_writeCharacteristic;
-                msgInfo.m_value = msg;
-                msgInfo.m_sendCount = 1;
-                msgInfo.m_sendIndex = 1;
-                CentralMessageSendQueue.add(msgInfo);
+                if (info.m_writeCharacteristic != null) {
+                    //Log.d(TAG, "sendDataToAllPeripherals: initReliableWrite : " + info.m_bluetoothGatt.beginReliableWrite());
+                    CentralSendMessageInfo msgInfo = new CentralSendMessageInfo();
+                    msgInfo.m_bluetoothGatt = info.m_bluetoothGatt;
+                    msgInfo.m_characteristic = info.m_writeCharacteristic;
+                    msgInfo.m_value = msg;
+                    msgInfo.m_sendCount = 1;
+                    msgInfo.m_sendIndex = 1;
+                    CentralMessageSendQueue.add(msgInfo);
 
-                if (CentralMessageSendQueue.size() == 1) {
-                    info.m_writeCharacteristic.setValue(msg);
-                    rt = info.m_bluetoothGatt.writeCharacteristic(info.m_writeCharacteristic);
+                    if (CentralMessageSendQueue.size() == 1) {
+                        info.m_writeCharacteristic.setValue(msg);
+                        rt = info.m_bluetoothGatt.writeCharacteristic(info.m_writeCharacteristic);
+                    }
+                } else {
+                    rt = false;
                 }
-            } else {
-                rt =  false;
             }
         }
         Log.d(TAG, "sendDataToAllPeripheral: byteMsg size : " + msg.length + ", result : " + rt);
