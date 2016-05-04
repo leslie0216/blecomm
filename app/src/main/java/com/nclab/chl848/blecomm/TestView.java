@@ -9,7 +9,7 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.os.Bundle;
 import android.os.Handler;
-import android.util.DisplayMetrics;
+import android.util.AttributeSet;
 import android.util.Log;
 import android.view.View;
 
@@ -17,6 +17,7 @@ import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.Hashtable;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Test view
@@ -40,13 +41,13 @@ public class TestView extends View {
     private Paint m_paint;
     private TestActivity m_activity;
     private String m_message;
-    private String m_status;
 
     private boolean m_isPing;
     private Hashtable<String, PingInfo> m_pingDict = null;
     private List<Double> m_timerArray = null;
     private int m_totalCount;
     private Handler m_pingHandler;
+    private Runnable timerRunnable;
 
 
 
@@ -77,15 +78,31 @@ public class TestView extends View {
 
     public TestView(Context context) {
         super(context);
+        init();
+    }
+
+    public TestView(Context context, AttributeSet attrs)
+    {
+        super(context, attrs);
+        init();
+    }
+    public TestView(Context context, AttributeSet attrs, int defStyle) {
+        super(context, attrs, defStyle);
+        init();
+    }
+
+    public void init() {
+        if (isInEditMode()) {
+            m_paint = new Paint();
+            m_message = "Ping messages";
+            return;
+        }
+
+        m_activity = (TestActivity)getContext();
 
         m_paint = new Paint();
         m_message = "";
-        if (BLEHandler.getInstance().getConnectionCount() > 0) {
-            m_status = "Connected";
-        } else {
-            m_status = "Not Connected";
-        }
-        m_activity = (TestActivity)context;
+
 
         m_intentFilter.addAction(BLEHandler.BLE_CONNECTION_UPDATE_ACTION);
         m_intentFilter.addAction(BLEHandler.BLE_GATT_CONNECTED_ACTION);
@@ -106,7 +123,6 @@ public class TestView extends View {
         super.onDraw(canvas);
 
         drawMessage(canvas);
-        drawStatus(canvas);
     }
 
     private void drawMessage(Canvas canvas) {
@@ -114,29 +130,21 @@ public class TestView extends View {
         m_paint.setColor(Color.BLUE);
         m_paint.setStrokeWidth(1);
         m_paint.setStyle(Paint.Style.FILL_AND_STROKE);
+        /*
         DisplayMetrics displayMetrics = getContext().getResources().getDisplayMetrics();
-        float x = displayMetrics.widthPixels * 0.1f;
-        float y = displayMetrics.heightPixels * 0.1f;
+        float x = displayMetrics.widthPixels * 0.5f;
+        float y = displayMetrics.heightPixels * 0.8f;
+        */
+        double x = this.getMeasuredWidth() * 0.1;
+        double y = this.getMeasuredHeight() *0.1;
         for (String line: m_message.split("\n")) {
-            canvas.drawText(line, x, y, m_paint);
+            canvas.drawText(line, (float)x, (float)y, m_paint);
             y += m_paint.descent() - m_paint.ascent();
         }
     }
 
-    private void drawStatus(Canvas canvas) {
-        m_paint.setTextSize(30);
-        m_paint.setColor(Color.RED);
-        m_paint.setStrokeWidth(1);
-        m_paint.setStyle(Paint.Style.FILL_AND_STROKE);
-        DisplayMetrics displayMetrics = getContext().getResources().getDisplayMetrics();
-        float x = displayMetrics.widthPixels * 0.45f;
-        float y = displayMetrics.heightPixels * 0.9f;
-        canvas.drawText(m_status, x, y, m_paint);
-    }
-
     public void updateStatus(String s) {
-        m_status = s;
-        postInvalidate();
+        m_activity.setStatus(s);
     }
 
     private void handleReceivedDataAction(Intent intent) {
@@ -181,6 +189,10 @@ public class TestView extends View {
                                 + "received count : " + m_timerArray.size() + "\n"
                                 + "total count : " + m_totalCount;
                         postInvalidate();
+
+                        if (m_activity.isPingPongMode() && info.m_currentCount == info.m_totalCount) {
+                            doPing();
+                        }
                     }
 
                 } else if (message.getMessageType() == Message.PingMessage.MsgType.PING) {
@@ -238,21 +250,28 @@ public class TestView extends View {
 
         m_totalCount = 0;
 
-        if (m_pingHandler == null) {
-            m_pingHandler = new Handler();
+        if (m_activity.isPingPongMode()) {
+            doPing();
+        } else {
+            if (m_pingHandler == null) {
+                m_pingHandler = new Handler();
+            }
+
+            timerRunnable = new Runnable() {
+                @Override
+                public void run() {
+                    doPing();
+                    if (m_isPing) {
+                        m_pingHandler.postDelayed(this, m_activity.getBatchInterval());
+                    }
+                }
+            };
+
+            m_pingHandler.postDelayed(timerRunnable, 0);
         }
-        m_pingHandler.postDelayed(timerRunnable, 0);
     }
 
-    Runnable timerRunnable = new Runnable() {
-        @Override
-        public void run() {
-            doPing();
-            if (m_isPing) {
-                m_pingHandler.postDelayed(this, 100);
-            }
-        }
-    };
+
 
     public void stopPing(boolean isExit) {
         m_isPing = false;
@@ -272,9 +291,9 @@ public class TestView extends View {
 
     private void doPing() {
         Message.PingMessage.Builder mb = Message.PingMessage.newBuilder();
-        //String currentToken  = UUID.randomUUID().toString();
-        String currentToken = String.valueOf(m_totalCount);
-        Log.d(BLEHandler.TAG, "sendMessage: token : " + currentToken);
+        String currentToken  = UUID.randomUUID().toString();
+        //String currentToken = "leslie";//String.valueOf(m_totalCount);
+        //Log.d(BLEHandler.TAG, "sendMessage: token : " + currentToken);
         mb.setToken(currentToken);
         mb.setMessageType(Message.PingMessage.MsgType.PING);
         mb.setResponseTime(0.0);

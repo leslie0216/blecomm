@@ -1,52 +1,99 @@
 package com.nclab.chl848.blecomm;
 
 import android.app.Activity;
+import android.app.AlertDialog;
+import android.content.DialogInterface;
 import android.os.Bundle;
+import android.view.KeyEvent;
 import android.view.View;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.widget.Button;
-import android.widget.LinearLayout;
-import android.widget.RelativeLayout;
+import android.widget.CheckBox;
+import android.widget.ImageButton;
+import android.widget.TextView;
 
 public class TestActivity extends Activity {
 
     TestView m_view;
-    private Button m_pingBtn;
+    private int m_interval;
+    private ImageButton m_up;
+    private ImageButton m_down;
+    private TextView m_lbInterval;
+    private TextView m_lbIntervalTile;
+    private Button m_pingButton;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_test);
 
-        m_view = new TestView(this);
-        this.addContentView(m_view, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT));
+        m_view = (TestView)findViewById(R.id.test_view);
 
-        m_pingBtn = new Button(this);
-        m_pingBtn.setText(getResources().getString(R.string.start_ping));
-        m_pingBtn.setOnClickListener(new View.OnClickListener() {
+        String isHost = BLEHandler.getInstance().isCentral() ? "Yes" : "No";
+        ((TextView)findViewById(R.id.lbIsHost)).setText(isHost);
+
+        m_pingButton = (Button)findViewById(R.id.btnPing);
+        m_pingButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 if (m_view.isPing()) {
                     m_view.stopPing(false);
-                    m_pingBtn.setText(getResources().getString(R.string.start_ping));
+                    m_pingButton.setText(getResources().getString(R.string.start_ping));
+                    setBtnEnabled(true);
                 } else {
                     m_view.startPing();
-                    m_pingBtn.setText(getResources().getString(R.string.stop_ping));
+                    m_pingButton.setText(getResources().getString(R.string.stop_ping));
+                    setBtnEnabled(false);
                 }
             }
         });
 
-        RelativeLayout relativeLayout = new RelativeLayout(this);
+        m_interval = 200;
+        m_lbInterval = (TextView)findViewById(R.id.lbInterval);
+        m_lbIntervalTile = (TextView)findViewById(R.id.lbIntervalTitle);
 
-        RelativeLayout.LayoutParams layoutParams = new RelativeLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        layoutParams.addRule(RelativeLayout.ALIGN_PARENT_TOP);
-        layoutParams.addRule(RelativeLayout.ALIGN_PARENT_RIGHT);
-        relativeLayout.addView(m_pingBtn, layoutParams);
-        setPingButtonEnabled(BLEHandler.getInstance().getConnectionCount() > 0);
+        updateBatchIntervalLabel();
 
-        this.addContentView(relativeLayout, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        m_up = (ImageButton) findViewById(R.id.btnUp);
+        m_up.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                m_interval += 100;
+                if (m_interval > 1000) {
+                    m_interval = 1000;
+                }
+                updateBatchIntervalLabel();
+            }
+        });
 
+        m_down = (ImageButton) findViewById(R.id.btnDown);
+        m_down.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                m_interval -= 100;
+                if (m_interval < 100) {
+                    m_interval = 100;
+                }
+                updateBatchIntervalLabel();
+            }
+        });
+
+        CheckBox cb = (CheckBox)findViewById(R.id.cbPingMode);
+        cb.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                updateUpDownBtn();
+            }
+        });
+
+        updateUpDownBtn();
+
+        if (BLEHandler.getInstance().getConnectionCount() > 0) {
+            setStatus("Connected");
+        } else {
+            setStatus("Not Connected");
+        }
     }
 
     @Override
@@ -88,7 +135,86 @@ public class TestActivity extends Activity {
         BLEHandler.getInstance().disconnect();
     }
 
+    @Override
+    public boolean onKeyDown(int keyCode, KeyEvent event) {
+        if (keyCode == KeyEvent.KEYCODE_BACK) {
+            exit();
+            return true;
+        } else {
+            return super.onKeyDown(keyCode, event);
+        }
+    }
+
+    private void exit() {
+        new AlertDialog.Builder(TestActivity.this).setTitle("Warning").setMessage("Do you want to exit?").setPositiveButton("Yes", new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                finish();
+                System.exit(0);
+            }
+        }).setNegativeButton("No", new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                //
+            }
+        }).show();
+    }
+
+    public int getBatchInterval() {
+        return m_interval;
+    }
+
+    private void updateBatchIntervalLabel() {
+        m_lbInterval.setText(String.valueOf(m_interval));
+    }
+
+    public boolean isPingPongMode() {
+        CheckBox cb = (CheckBox)findViewById(R.id.cbPingMode);
+        return cb.isChecked();
+    }
+
+    private void setBtnEnabled(boolean isEnabled) {
+        findViewById(R.id.cbPingMode).setEnabled(isEnabled);
+
+        if (!isEnabled) {
+            m_up.setEnabled(false);
+            m_down.setEnabled(false);
+            m_lbInterval.setEnabled(false);
+        } else {
+            updateUpDownBtn();
+        }
+    }
+
+    private void updateUpDownBtn() {
+        boolean isChecked = isPingPongMode();
+
+        if (isChecked) {
+            m_up.setEnabled(false);
+            m_down.setEnabled(false);
+            m_lbInterval.setEnabled(false);
+
+            m_lbIntervalTile.setVisibility(View.INVISIBLE);
+            m_lbInterval.setVisibility(View.INVISIBLE);
+            m_up.setVisibility(View.INVISIBLE);
+            m_down.setVisibility(View.INVISIBLE);
+        } else {
+            m_up.setEnabled(true);
+            m_down.setEnabled(true);
+            m_lbInterval.setEnabled(true);
+
+            m_lbIntervalTile.setVisibility(View.VISIBLE);
+            m_lbInterval.setVisibility(View.VISIBLE);
+            m_up.setVisibility(View.VISIBLE);
+            m_down.setVisibility(View.VISIBLE);
+        }
+    }
+
     public void setPingButtonEnabled(boolean enabled) {
-        m_pingBtn.setEnabled(enabled);
+        m_pingButton.setEnabled(enabled);
+    }
+
+    public void setStatus(String s) {
+        TextView v = (TextView)findViewById(R.id.lbNetworkStatus);
+        v.setText(s);
     }
 }
