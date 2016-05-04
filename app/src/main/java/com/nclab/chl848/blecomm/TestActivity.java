@@ -49,7 +49,7 @@ public class TestActivity extends Activity {
             }
         });
 
-        m_interval = 200;
+        m_interval = 100;
         m_lbInterval = (TextView)findViewById(R.id.lbInterval);
         m_lbIntervalTile = (TextView)findViewById(R.id.lbIntervalTitle);
 

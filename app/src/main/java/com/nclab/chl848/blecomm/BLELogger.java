@@ -27,7 +27,12 @@ public class BLELogger {
         String minute = String.valueOf(calendar.get(Calendar.MINUTE));
         String second = String.valueOf(calendar.get(Calendar.SECOND));
         String time = year+"-"+month+"-"+date+"-"+hour+"-"+minute+"-"+second;
-        String targetPath = Environment.getExternalStorageDirectory().getPath() + File.separator + fileName + "-" + time + SUFFIX;
+        String targetPath;
+        if (fileName.isEmpty()) {
+            targetPath = Environment.getExternalStorageDirectory().getPath() + File.separator + time + SUFFIX;
+        } else {
+            targetPath = Environment.getExternalStorageDirectory().getPath() + File.separator + fileName + "-" + time + SUFFIX;
+        }
         File targetFile = new File(targetPath);
         if (targetFile != null) {
             if (!targetFile.exists()) {

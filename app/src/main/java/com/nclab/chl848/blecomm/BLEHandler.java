@@ -705,6 +705,7 @@ public class BLEHandler {
                     Intent i = new Intent(BLE_RECEIVED_DATA_ACTION);
                     i.putExtra(BLE_EXTRA_DATA_RECEIVE_TIME, receiveTime);
                     i.putExtra(BLE_EXTRA_DATA, value);
+                    i.putExtra(BLE_EXTRA_DATA_ADDRESS, device.getAddress());
                     m_currentActivity.sendBroadcast(i);
                 }
             }

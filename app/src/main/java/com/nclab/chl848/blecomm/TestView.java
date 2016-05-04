@@ -7,6 +7,7 @@ import android.content.IntentFilter;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.util.AttributeSet;
@@ -23,6 +24,8 @@ import java.util.UUID;
  * Test view
  */
 public class TestView extends View {
+
+    private static final boolean LOG_ENABLE = true;
 
     private class PingInfo {
         public String m_token;
@@ -49,6 +52,7 @@ public class TestView extends View {
     private Handler m_pingHandler;
     private Runnable timerRunnable;
 
+    private BLELogger m_logger;
 
 
     private final IntentFilter m_intentFilter = new IntentFilter();
@@ -152,6 +156,7 @@ public class TestView extends View {
 
         byte[] data = bundle.getByteArray(BLEHandler.BLE_EXTRA_DATA);
         long receiveTime = bundle.getLong(BLEHandler.BLE_EXTRA_DATA_RECEIVE_TIME);
+        String address = bundle.getString(BLEHandler.BLE_EXTRA_DATA_ADDRESS);
 
         if (data != null && data.length != 0 && receiveTime != 0) {
             try {
@@ -183,6 +188,11 @@ public class TestView extends View {
                     info.m_timeIntervals.add(timeInterval);
                     info.m_currentCount += 1;
                     m_pingDict.put(token, info);
+
+                    if (LOG_ENABLE && m_logger != null) {
+                        // target, timeInterval, token, number, isHost, timestamp
+                        m_logger.write(address + "," + timeInterval + "," + token + "," + info.m_number + "," +  BLEHandler.getInstance().isCentral() + "," + System.currentTimeMillis(), true);
+                    }
 
                     if (isPing()) {
                         m_message = "current : " + timeInterval + "\n"
@@ -250,6 +260,10 @@ public class TestView extends View {
 
         m_totalCount = 0;
 
+        if (LOG_ENABLE) {
+            m_logger =  new BLELogger(getContext(), "");
+        }
+
         if (m_activity.isPingPongMode()) {
             doPing();
         } else {
@@ -279,6 +293,11 @@ public class TestView extends View {
             m_pingHandler.removeCallbacks(timerRunnable);
         }
 
+        if (LOG_ENABLE && m_logger != null) {
+            m_logger.flush();
+            m_logger.close();
+        }
+
         if (!isExit) {
             new Handler().postDelayed(new Runnable() {
                 @Override
@@ -291,8 +310,8 @@ public class TestView extends View {
 
     private void doPing() {
         Message.PingMessage.Builder mb = Message.PingMessage.newBuilder();
-        String currentToken  = UUID.randomUUID().toString();
-        //String currentToken = "leslie";//String.valueOf(m_totalCount);
+        //String currentToken  = UUID.randomUUID().toString();
+        String currentToken = String.valueOf(m_totalCount);
         //Log.d(BLEHandler.TAG, "sendMessage: token : " + currentToken);
         mb.setToken(currentToken);
         mb.setMessageType(Message.PingMessage.MsgType.PING);
