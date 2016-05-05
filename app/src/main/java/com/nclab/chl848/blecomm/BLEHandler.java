@@ -50,6 +50,12 @@ public class BLEHandler {
         public int m_sendCount;
     }
 
+    public class PeripheralSendMessageInfo {
+        public byte[] m_value;
+        public int m_sendIndex;
+        public int m_sendCount;
+    }
+
     private class PeripheralInfo {
         public BluetoothGatt m_bluetoothGatt;
         public BluetoothGattCharacteristic m_writeCharacteristic;
@@ -411,7 +417,7 @@ public class BLEHandler {
                     Log.d(TAG, "Attempting to start service discovery:" + gatt.discoverServices());
 
                 } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-                    Log.i(TAG, "Disconnected from GATT server : " + gatt.getDevice().getName());
+                    Log.d(TAG, "Disconnected from GATT server : " + gatt.getDevice().getName());
                     m_peripheralDevices.remove(gatt.getDevice().getAddress());
                     broadcastStatus(BLE_GATT_DISCONNECTED_ACTION);
                     gatt.disconnect();

@@ -25,7 +25,7 @@ import java.util.UUID;
  */
 public class TestView extends View {
 
-    private static final boolean LOG_ENABLE = true;
+    private static final boolean LOG_ENABLE = false;
 
     private class PingInfo {
         public String m_token;
