@@ -64,6 +64,51 @@ public class BLEHandler {
         public int m_mtu;
     }
 
+    private class PeripheralWriteRequestData{
+        private String  m_deviceAddress;
+        private String m_UUID;
+        private boolean m_isCharacter;
+        List<byte[]> byteArray;
+        public PeripheralWriteRequestData(String address,String uuid, boolean isCharacter){
+            m_deviceAddress = address;
+            m_UUID = uuid;
+            byteArray = new ArrayList<byte[]>();
+            m_isCharacter = isCharacter;
+        }
+
+        public boolean isCharacter(){return m_isCharacter;}
+        public String getUUID(){return m_UUID;}
+        public String getDeviceAddress(){return m_deviceAddress;}
+        public void clearData(){
+            byteArray.clear();
+        }
+        public void addData(byte[] array){
+            byteArray.add(array);
+        }
+
+        public byte[] getFullData(){
+            byte[] retArray = null;
+            int totalSize = 0;
+
+            for(int i=0; i < byteArray.size();i++){
+                totalSize = totalSize + byteArray.get(i).length;
+            }
+
+            int copuCounter = 0;
+            if(totalSize > 0) {
+                retArray = new byte[totalSize];
+                for(int ii=0; ii < byteArray.size();ii++){
+                    byte[] tmpArr = byteArray.get(ii);
+                    System.arraycopy(tmpArr, 0, retArray,copuCounter,tmpArr.length);
+                    copuCounter = copuCounter + tmpArr.length;
+                }
+            }else{
+                retArray = new byte[]{};
+            }
+            return retArray;
+        }
+    }
+
     //region CONSTANTS
     public static final String TAG = "BLECOMM";
     public static final String BLE_CONNECTION_UPDATE_ACTION = "blecomm.chl848.nclab.com.BLE_CONNECTION_UPDATE_ACTION";
@@ -121,6 +166,7 @@ public class BLEHandler {
     private BluetoothGattCharacteristic m_writeCharacteristic;
     private BluetoothGattCharacteristic m_readCharacteristic;
     public List<byte[]> PeripheralMessageQueue = new LinkedList<>();
+    private List<PeripheralWriteRequestData> m_writeList = new ArrayList<PeripheralWriteRequestData>();
     //endregion
 
     //region COMMON FUNCTIONS
@@ -252,6 +298,14 @@ public class BLEHandler {
     private void broadcastStatus(String action, String msg) {
         Intent i = new Intent(action);
         i.putExtra(BLE_EXTRA_DATA, msg);
+        m_currentActivity.sendBroadcast(i);
+    }
+
+    private void broadcastReceiveDatAction(String deviceAddress, byte[] value, long receiveTime) {
+        Intent i = new Intent(BLE_RECEIVED_DATA_ACTION);
+        i.putExtra(BLE_EXTRA_DATA_RECEIVE_TIME, receiveTime);
+        i.putExtra(BLE_EXTRA_DATA, value);
+        i.putExtra(BLE_EXTRA_DATA_ADDRESS, deviceAddress);
         m_currentActivity.sendBroadcast(i);
     }
 
@@ -518,13 +572,7 @@ public class BLEHandler {
                 Log.d(TAG, "onCharacteristicChanged: " + characteristic.getUuid().toString() + " , size : " + characteristic.getValue().length);
 
                 if (characteristic.getUuid().toString().equalsIgnoreCase(TRANSFER_CHARACTERISTIC_MSG_FROM_PERIPHERAL_UUID)) {
-                    long receiveTime = System.nanoTime();
-
-                    Intent i = new Intent(BLE_RECEIVED_DATA_ACTION);
-                    i.putExtra(BLE_EXTRA_DATA_RECEIVE_TIME, receiveTime);
-                    i.putExtra(BLE_EXTRA_DATA, characteristic.getValue());
-                    i.putExtra(BLE_EXTRA_DATA_ADDRESS, gatt.getDevice().getAddress());
-                    m_currentActivity.sendBroadcast(i);
+                    broadcastReceiveDatAction(gatt.getDevice().getAddress(), characteristic.getValue(), System.nanoTime());
                 }
             }
 
@@ -702,17 +750,18 @@ public class BLEHandler {
 
             @Override
             public void onCharacteristicWriteRequest(BluetoothDevice device, int requestId, BluetoothGattCharacteristic characteristic, boolean preparedWrite, boolean responseNeeded, int offset, byte[] value) {
-                long receiveTime = System.nanoTime();
-                Log.d(TAG, "received a write request from " + device.getName() + " to characteristic " + characteristic.getUuid());
+                Log.d(TAG, "onCharacteristicWriteRequest requestId = " + requestId + " " + "received a write request from " + device + " to characteristic " + characteristic.getUuid() + " valueLength = " + value.length + " offset = " + offset + " preparedWrite = " + preparedWrite + " responseNeeded = " + responseNeeded);
                 //super.onCharacteristicWriteRequest(device, requestId, characteristic, preparedWrite, responseNeeded, offset, value);
-                m_bluetoothGattServer.sendResponse(device, requestId,  BluetoothGatt.GATT_SUCCESS, offset, value);
+                if (m_bluetoothGattServer != null && responseNeeded) {
+                    m_bluetoothGattServer.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, value);
+                }
 
                 if (characteristic.getUuid().toString().equalsIgnoreCase(TRANSFER_CHARACTERISTIC_MSG_FROM_CENTRAL_UUID)) {
-                    Intent i = new Intent(BLE_RECEIVED_DATA_ACTION);
-                    i.putExtra(BLE_EXTRA_DATA_RECEIVE_TIME, receiveTime);
-                    i.putExtra(BLE_EXTRA_DATA, value);
-                    i.putExtra(BLE_EXTRA_DATA_ADDRESS, device.getAddress());
-                    m_currentActivity.sendBroadcast(i);
+                    if (preparedWrite) {
+                        addWriteItemByteBuffer(device.getAddress(), characteristic.getUuid().toString(), value, true);
+                    } else {
+                        broadcastReceiveDatAction(device.getAddress(), value, System.nanoTime());
+                    }
                 }
             }
 
@@ -731,8 +780,13 @@ public class BLEHandler {
 
             @Override
             public void onExecuteWrite(BluetoothDevice device, int requestId, boolean execute) {
-                Log.d(TAG, "gatt server on execute write device = " + device + " requestId = " + " execute = " + execute);
+                Log.d(TAG, "gatt server on execute write device = " + device + " requestId = " + requestId + " execute = " + execute);
                 super.onExecuteWrite(device, requestId, execute);
+                if (m_bluetoothGattServer != null) {
+                    m_bluetoothGattServer.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, new byte[]{});
+                }
+
+                executeWriteRequest(device.getAddress(), execute);
             }
 
             @Override
@@ -833,6 +887,47 @@ public class BLEHandler {
             Log.d(TAG, "sendDataToCentral: byteMsg size : " + msg.length + ", result : " + rt);
         }
         return rt;
+    }
+
+    private void executeWriteRequest(String deviceAddress, boolean execute){
+
+        for(int i=m_writeList.size() - 1; i >= 0;i--){
+            PeripheralWriteRequestData storage  = m_writeList.get(i);
+            if(storage != null && storage.getDeviceAddress().equalsIgnoreCase(deviceAddress)){
+                if(execute){//if its not for executing, its then for cancelling it
+                    if(storage.isCharacter()){
+                        broadcastReceiveDatAction(storage.getDeviceAddress(), storage.getFullData(), System.nanoTime());
+                    }
+                }
+
+                m_writeList.remove(storage);
+                //we are done with this item now.
+                storage.clearData();
+            }
+        }
+    }
+
+    private void addWriteItemByteBuffer(String deviceAddress, String uuid,byte[] buffer, boolean isCharacter){
+        PeripheralWriteRequestData  data = getWriteItem(deviceAddress,uuid);
+        if(data != null){
+            data.addData(buffer);
+        }else{
+            PeripheralWriteRequestData newItem = new PeripheralWriteRequestData(deviceAddress,uuid,isCharacter);
+            newItem.addData(buffer);
+            m_writeList.add(newItem);
+        }
+    }
+
+
+    private PeripheralWriteRequestData getWriteItem(String deviceAddress, String uuid) {
+        PeripheralWriteRequestData ret = null;
+        for (PeripheralWriteRequestData data : m_writeList){
+            if(data != null && data.getUUID().equalsIgnoreCase(uuid) && data.getDeviceAddress().equalsIgnoreCase(deviceAddress)){
+                ret = data;
+                break;
+            }
+        }
+        return ret;
     }
     //endregion
 }
