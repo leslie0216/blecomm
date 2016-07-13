@@ -8,8 +8,9 @@ message PingMessage {
     RESPONSE = 1;
   }
 
-string token = 1;
-MsgType messageType = 2;
-double responseTime = 3;
-bool isReliable = 4;
+ uint32 token = 1;
+ MsgType messageType = 2;
+ double responseTime = 3;
+ bool isReliable = 4;
+ string message = 5;
 }

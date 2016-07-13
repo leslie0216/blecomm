@@ -46,14 +46,6 @@ public class BLEHandler {
         public BluetoothGatt m_bluetoothGatt;
         public BluetoothGattCharacteristic m_characteristic;
         public byte[] m_value;
-        public int m_sendIndex;
-        public int m_sendCount;
-    }
-
-    public class PeripheralSendMessageInfo {
-        public byte[] m_value;
-        public int m_sendIndex;
-        public int m_sendCount;
     }
 
     private class PeripheralInfo {
@@ -181,6 +173,7 @@ public class BLEHandler {
     private boolean isCentral;
     private boolean m_isScanningOrAdvertising;
     private boolean m_isInit = false;
+    private List<MessageData> m_recMsgArray = new ArrayList<>();
     //private SenderThread m_senderThread;
     //endregion
 
@@ -192,8 +185,7 @@ public class BLEHandler {
     private ScanCallback m_scanCallback;
     private BluetoothGattCallback m_gattCallback;
     private Hashtable<String, PeripheralInfo> m_peripheralDevices = null;
-    public List<CentralSendMessageInfo> CentralMessageSendQueue = new LinkedList<>();
-    private List<MessageData> m_recMsgArray = new ArrayList<>();
+    public final List<CentralSendMessageInfo> CentralMessageSendQueue = new LinkedList<>();
     //endregion
 
     //region PERIPHERAL VARS
@@ -678,22 +670,18 @@ public class BLEHandler {
             @Override
             public void onCharacteristicWrite(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, int status) {
                 super.onCharacteristicWrite(gatt, characteristic, status);
-                Log.d(TAG, "onCharacteristicWrite: " + characteristic.getUuid().toString() + " status=" + status);
+                Log.d(TAG, "onCharacteristicWrite: " + characteristic.getUuid().toString() + " device = " + gatt.getDevice().getAddress() + " status = " + status);
                 try {
                     //Message.PingMessage msg = Message.PingMessage.parseFrom(characteristic.getValue());
                     //Log.d(TAG, "onCharacteristicWrite: value = " + msg.getToken());
 
                     //gatt.executeReliableWrite();
 
-                    if (status == BluetoothGatt.GATT_SUCCESS && CentralMessageSendQueue.size() != 0) {
+                    synchronized (CentralMessageSendQueue) {
                         CentralMessageSendQueue.remove(0);
-                    }
-
-                    if (CentralMessageSendQueue.size() != 0) {
-                        CentralSendMessageInfo msgInfo = CentralMessageSendQueue.get(0);
-                        msgInfo.m_characteristic.setValue(msgInfo.m_value);
-                        msgInfo.m_bluetoothGatt.writeCharacteristic(msgInfo.m_characteristic);
-                        Log.d(TAG, "onCharacteristicWrite: sendDataToAllPeripheral: byteMsg size : " + msgInfo.m_value.length);
+                        if (CentralMessageSendQueue.size() != 0) {
+                            sendDataToPeripherals();
+                        }
                     }
 
                 } catch (Exception ex) {
@@ -748,65 +736,77 @@ public class BLEHandler {
         };
     }
 
-    public boolean sendDataToAllPeripherals(byte[] msg) {
+    public boolean sendDataToAllPeripherals(byte[] message) {
         boolean rt = false;
         if (m_peripheralDevices != null) {
             Enumeration<PeripheralInfo> values = m_peripheralDevices.elements();
             while (values.hasMoreElements()) {
                 PeripheralInfo info = values.nextElement();
 
-                if (info.m_writeCharacteristic != null) {
+                if (info.m_bluetoothGatt != null && info.m_writeCharacteristic != null) {
                     //Log.d(TAG, "sendDataToAllPeripherals: initReliableWrite : " + info.m_bluetoothGatt.beginReliableWrite());
-                    CentralSendMessageInfo msgInfo = new CentralSendMessageInfo();
-                    msgInfo.m_bluetoothGatt = info.m_bluetoothGatt;
-                    msgInfo.m_characteristic = info.m_writeCharacteristic;
-                    msgInfo.m_value = msg;
-                    msgInfo.m_sendCount = 1;
-                    msgInfo.m_sendIndex = 1;
-                    CentralMessageSendQueue.add(msgInfo);
+                    List<byte[]> msgs = makeMsg(message, MAX_MTU);
+                    synchronized (CentralMessageSendQueue) {
+                        boolean shouldExecute = CentralMessageSendQueue.size() == 0;
+                        for (byte[] msg : msgs) {
+                            CentralSendMessageInfo msgInfo = new CentralSendMessageInfo();
+                            msgInfo.m_bluetoothGatt = info.m_bluetoothGatt;
+                            msgInfo.m_characteristic = info.m_writeCharacteristic;
+                            msgInfo.m_value = msg;
+                            CentralMessageSendQueue.add(msgInfo);
+                        }
 
-                    if (CentralMessageSendQueue.size() == 1) {
-                        info.m_writeCharacteristic.setValue(msg);
-                        rt = info.m_bluetoothGatt.writeCharacteristic(info.m_writeCharacteristic);
+                        if (shouldExecute) {
+                            rt = sendDataToPeripherals();
+                        }
                     }
-                } else {
-                    rt = false;
                 }
             }
-        }
-        if (CentralMessageSendQueue.size() > 1) {
-            Log.d(TAG, "sendDataToAllPeripherals: byteMsg size : " + msg.length + ", result : schedule to send later");
-        } else {
-            Log.d(TAG, "sendDataToAllPeripheral: byteMsg size : " + msg.length + ", result : " + rt);
         }
 
         return rt;
     }
 
-    public boolean sendDataToPeripheral(String address, byte[] msg) {
+    public boolean sendDataToPeripheral(String address, byte[] message) {
         PeripheralInfo info = m_peripheralDevices.get(address);
         boolean rt = false;
         if (info != null) {
-            if (info.m_writeCharacteristic != null) {
-                CentralSendMessageInfo msgInfo = new CentralSendMessageInfo();
-                msgInfo.m_bluetoothGatt = info.m_bluetoothGatt;
-                msgInfo.m_characteristic = info.m_writeCharacteristic;
-                msgInfo.m_value = msg;
-                msgInfo.m_sendCount = 1;
-                msgInfo.m_sendIndex = 1;
-                CentralMessageSendQueue.add(msgInfo);
+            if (info.m_bluetoothGatt != null && info.m_writeCharacteristic != null) {
+                List<byte[]> msgs = makeMsg(message, MAX_MTU);
+                synchronized (CentralMessageSendQueue) {
+                    boolean shouldExecute = CentralMessageSendQueue.size() == 0;
 
-                if (CentralMessageSendQueue.size() == 1) {
-                    info.m_writeCharacteristic.setValue(msg);
-                    rt = info.m_bluetoothGatt.writeCharacteristic(info.m_writeCharacteristic);
+                    for (byte[] msg : msgs) {
+                        CentralSendMessageInfo msgInfo = new CentralSendMessageInfo();
+                        msgInfo.m_bluetoothGatt = info.m_bluetoothGatt;
+                        msgInfo.m_characteristic = info.m_writeCharacteristic;
+                        msgInfo.m_value = msg;
+                        CentralMessageSendQueue.add(msgInfo);
+                    }
+
+                    if (shouldExecute) {
+                        rt = sendDataToPeripherals();
+                    }
                 }
-            } else {
-                rt =  false;
             }
-            if (CentralMessageSendQueue.size() > 1) {
-                Log.d(TAG, "sendDataToPeripheral: byteMsg size : " + msg.length + ", to : " + info.m_name + ", result : schedule to send later");
-            } else {
-                Log.d(TAG, "sendDataToPeripheral: byteMsg size : " + msg.length + ", to : " + info.m_name + ", result : " + rt);
+        }
+
+        return rt;
+    }
+
+    private boolean sendDataToPeripherals() {
+        boolean rt = false;
+        synchronized (CentralMessageSendQueue) {
+            if (CentralMessageSendQueue.size() != 0) {
+                CentralSendMessageInfo msgInfo = CentralMessageSendQueue.get(0);
+                if (msgInfo.m_bluetoothGatt != null && msgInfo.m_characteristic != null) {
+                    msgInfo.m_characteristic.setValue(msgInfo.m_value);
+                    rt = msgInfo.m_bluetoothGatt.writeCharacteristic(msgInfo.m_characteristic);
+                    Log.d(TAG, "sendDataToPeripherals: byteMsg size :" + msgInfo.m_value.length);
+                } else {
+                    Log.d(TAG, "sendDataToPeripherals: failed, CentralMessageSendQueue.size() = " + CentralMessageSendQueue.size() +
+                            "msgInfo.m_bluetoothGatt = " + (msgInfo.m_bluetoothGatt != null) + "msgInfo.m_characteristic = " + (msgInfo.m_characteristic != null));
+                }
             }
         }
 
@@ -894,7 +894,7 @@ public class BLEHandler {
                     if (preparedWrite) {
                         addWriteItemByteBuffer(device.getAddress(), characteristic.getUuid().toString(), value, true);
                     } else {
-                        broadcastReceiveDatAction(device.getAddress(), value, System.nanoTime());
+                        processMsg(characteristic.getValue(), device.getAddress(), System.nanoTime());
                     }
                 }
             }
@@ -931,9 +931,10 @@ public class BLEHandler {
                     if (status == BluetoothGatt.GATT_SUCCESS && PeripheralMessageQueue.size() != 0) {
                         PeripheralMessageQueue.remove(0);
                     }
-                }
-                if (PeripheralMessageQueue.size() != 0) {
-                    sendDataToCentral();
+
+                    if (PeripheralMessageQueue.size() != 0) {
+                        sendDataToCentral();
+                    }
                 }
             }
 
@@ -1009,12 +1010,16 @@ public class BLEHandler {
 
             List<byte[]> msgs = makeMsg(message, m_centralMTU);
             synchronized (PeripheralMessageQueue) {
+                boolean shouldExecute = PeripheralMessageQueue.size() == 0;
                 for (byte[] msg : msgs) {
                     PeripheralMessageQueue.add(msg);
                 }
+
+                if (shouldExecute) {
+                    rt = sendDataToCentral();
+                }
             }
 
-            rt = sendDataToCentral();
         }
 
         return rt;
@@ -1043,7 +1048,7 @@ public class BLEHandler {
             if(storage != null && storage.getDeviceAddress().equalsIgnoreCase(deviceAddress)){
                 if(execute){//if its not for executing, its then for cancelling it
                     if(storage.isCharacter()){
-                        broadcastReceiveDatAction(storage.getDeviceAddress(), storage.getFullData(), System.nanoTime());
+                        processMsg(storage.getFullData(), storage.getDeviceAddress(), System.nanoTime());
                     }
                 }
 
